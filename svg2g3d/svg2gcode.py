@@ -15,44 +15,14 @@ DEBUGGING = True
 SVG = set(['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path'])
 
 
-def generate_gcode(filename):
+def generate_gcode(str):
     ''' The main method that converts svg files into gcode files.
         Still incomplete. See tests/start.svg'''
 
-    # Check File Validity
-    if not os.path.isfile(filename):
-        raise ValueError("File \""+filename+"\" not found.")
-
-    if not filename.endswith('.svg'):
-        raise ValueError("File \""+filename+"\" is not an SVG file.")
-
-    # Define the Output
-    # ASSUMING LINUX / OSX FOLDER NAMING STYLE
-    log = ""
-    log += debug_log("Input File: "+filename)
-
-    dir_string, file = os.path.split(filename)
-
-    # Make Output File
-    outdir = dir_string + "/gcode_output/"
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
-    outfile = outdir + file.split(".svg")[0] + '.gcode'
-    log += debug_log("Output File: "+outfile)
-
-    # Make Debug File
-    debugdir = dir_string + "/log/"
-    if not os.path.exists(debugdir):
-        os.makedirs(debugdir)
-    debug_file = debugdir + file.split(".svg")[0] + '.log'
-    log += debug_log("Log File: "+debug_file+"\n")
-
     # Get the SVG Input File
-    file = open(filename, 'r')
-    tree = ET.parse(file)
-    root = tree.getroot()
-    file.close()
-    
+    tree = ET.fromstring(str)
+    root = tree
+
     # Get the Height and Width from the parent svg tag
     width = root.get('width')
     height = root.get('height')
@@ -78,22 +48,15 @@ def generate_gcode(filename):
         scale = 1
 
 
-    log += debug_log("wdth: "+str(width))
-    log += debug_log("hght: "+str(height))
-    log += debug_log("scale: "+str(scale))
-    log += debug_log("x%: "+str(scale_x))
-    log += debug_log("y%: "+str(scale_y))
-
     # CREATE OUTPUT VARIABLE
     gcode = ""
 
     # Write Initial G-Codes
-    gcode += preamble + "\n"
-    gcode += "G1 F" + str(feed_rate) + "\n"
+    #gcode += preamble + "\n"
+    #gcode += "G1 F" + str(feed_rate) + "\n"
     
     # Iterate through svg elements
     for elem in root.iter():
-        log += debug_log("--Found Elem: "+str(elem))
         new_shape = True
         try:
             tag_suffix = elem.tag.split("}")[-1]
@@ -104,47 +67,31 @@ def generate_gcode(filename):
         # Checks element is valid SVG shape
         if tag_suffix in SVG:
 
-            log += debug_log("  --Name: "+str(tag_suffix))
-
             # Get corresponding class object from 'shapes.py'
             shape_class = getattr(shapes_pkg, tag_suffix)
             shape_obj = shape_class(elem)
-
-            log += debug_log("\tClass : "+str(shape_class))
-            log += debug_log("\tObject: "+str(shape_obj))
-            log += debug_log("\tAttrs : "+str(list(elem.items())))
-            log += debug_log("\tTransform: "+str(elem.get('transform')))
-
 
             ############ HERE'S THE MEAT!!! #############
             # Gets the Object path info in one of 2 ways:
             # 1. Reads the <tag>'s 'd' attribute.
             # 2. Reads the SVG and generates the path itself.
             d = shape_obj.d_path()
-            log += debug_log("\td: "+str(d))
-
             # The *Transformation Matrix* #
             # Specifies something about how curves are approximated
             # Non-essential - a default is used if the method below
             #   returns None.
             m = shape_obj.transformation_matrix()
-            log += debug_log("\tm: "+str(m))
 
             if d:
-                log += debug_log("\td is GOOD!")
-
                 gcode += shape_preamble + "\n"
                 points = point_generator(d, m, smoothness)
 
-                log += debug_log("\tPoints: "+str(points))
                 #plist = list(points)
                 #print(plist)
 
                 x_prev, y_prev, x_curr, y_curr = None, None, None, None
                 
                 for x,y in points:
-
-                    #log += debug_log("\t  pt: "+str((x,y)))
 
                     if x_curr is None:
                         x_curr = scale*x
@@ -170,9 +117,6 @@ def generate_gcode(filename):
                     else:
                         e = e + b
 
-                    print("X:", x_curr, "Y:", y_curr, "New_Extr:", e)
-                    log += debug_log("\t  pt: "+str((x,y)))
-
                     if x_curr >= 0 and x_curr <= bed_max_x and y_curr >= 0 and y_curr <= bed_max_y:
                         if new_shape:
                             gcode += ("G0 X%0.3f Y%0.3f\n" % (x_curr, y_curr))
@@ -180,38 +124,9 @@ def generate_gcode(filename):
                         else:
 
                             gcode += ("G1 X%0.3f Y%0.3f E%0.3f\n" % (x_curr, y_curr, e))
-                        log += debug_log("\t    --Point printed")
-                    else:
-                        log += debug_log("\t    --POINT NOT PRINTED ("+str(bed_max_x)+","+str(bed_max_y)+")")
                 gcode += shape_postamble + "\n"
-            else:
-              log += debug_log("\tNO PATH INSTRUCTIONS FOUND!!")
-        else:
-          log += debug_log("  --No Name: "+tag_suffix)
-
-    gcode += postamble + "\n"
-
-    # Write the Result
-    ofile = open(outfile, 'w+')
-    ofile.write(gcode)
-    ofile.close()
-
-    # Write Debugging
-    if DEBUGGING:
-        dfile = open(debug_file, 'w+')
-        dfile.write(log)
-        dfile.close()
-
-
-
-def debug_log(message):
-    ''' Simple debugging function. If you don't understand 
-        something then chuck this frickin everywhere. '''
-    if (DEBUGGING):
-        print(message)
-    return message+'\n'
-
-
+    #gcode += postamble + "\n"
+    return gcode[1:-2]
 
 def test(filename):
     ''' Simple test function to call to check that this 
